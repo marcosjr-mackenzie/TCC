@@ -11,3 +11,13 @@ Os dados utilizados no projeto referem-se a fundos de investimento imobiliário 
 - Base Cota Ajustada.csv → contém os valores de cotas ajustados por rendimentos e desdobramentos, utilizada para o cálculo dos retornos diários;
 - Base Cota Mercado.csv → contém as cotações de fechamento de mercado, utilizada para o cálculo das covariâncias e volatilidades.
 Para garantir realismo e representatividade, foram selecionados apenas fundos com média de liquidez diária superior a R$ 1 milhão, de modo a refletir condições de investimento plausíveis no mercado brasileiro.
+
+
+## Interface Streamlit
+<img width="1886" height="362" alt="image" src="https://github.com/user-attachments/assets/50d36987-c171-4b42-b338-1fdc790b2641" />
+
+<img width="1853" height="793" alt="image" src="https://github.com/user-attachments/assets/3e2e3191-cf33-4896-919a-e8099aca68e0" />
+
+<img width="1876" height="823" alt="image" src="https://github.com/user-attachments/assets/25ddc0a2-7120-4154-8833-cc93d009d355" />
+
+<img width="1513" height="243" alt="image" src="https://github.com/user-attachments/assets/675cd196-dd52-4400-8a62-74b0065c0afc" />
