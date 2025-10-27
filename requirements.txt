@@ -1,0 +1,7 @@
+pandas
+streamlit
+openpyxl
+PyPortfolioOpt
+gymnasium
+stable_baselines3
+scikit-learn
