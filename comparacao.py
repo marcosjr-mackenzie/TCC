@@ -60,7 +60,7 @@ def run_backtest_and_plot(
         # Define o período do backtest (e.g., a partir de 2022 para testar "fora da amostra")
         df_backtest = df_returns.loc["2022-01-01":]
 
-        portfolios = {"Markowitz": carteira_markowitz, "DRL (IA)": carteira_drl}
+        portfolios = {"Markowitz": carteira_markowitz, "DRL": carteira_drl}
         df_cumulative_returns = pd.DataFrame(index=df_backtest.index)
         all_metrics = {}
 
@@ -85,7 +85,6 @@ def run_backtest_and_plot(
             )
 
         # --- 3. Geração dos Gráficos Comparativos ---
-
         # Gráfico 1: Rentabilidade Acumulada
         fig_cumulative = go.Figure()
         for col in df_cumulative_returns.columns:
@@ -110,7 +109,7 @@ def run_backtest_and_plot(
             rows=1,
             cols=2,
             specs=[[{"type": "domain"}, {"type": "domain"}]],
-            subplot_titles=("<b>Alocação Markowitz</b>", "<b>Alocação DRL (IA)</b>"),
+            subplot_titles=("<b>Alocação Markowitz</b>", "<b>Alocação DRL</b>"),
         )
         # Tenta extrair as carteiras, tratando o caso de uma delas não existir
         mkw_labels = list(carteira_markowitz.keys())
