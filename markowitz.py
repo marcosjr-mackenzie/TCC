@@ -2,7 +2,11 @@ import pandas as pd
 import numpy as np
 from pypfopt import EfficientFrontier, risk_models, expected_returns
 from pypfopt.exceptions import OptimizationError
+import traceback
 
+def _to_numeric_df(df: pd.DataFrame) -> pd.DataFrame:
+    # força tudo para numérico (mantém datas no índice)
+    return df.apply(pd.to_numeric, errors="coerce")
 
 def Otimizacao_Markowitz(
     quantidade_ativos: int,
@@ -10,112 +14,106 @@ def Otimizacao_Markowitz(
     taxa_livre_risco: float,
     retorno_alvo: float = None,
 ) -> dict:
+    print("\n===============================")
+    print(">> Iniciando Otimização Markowitz")
+    print(f"Parâmetros: ativos={quantidade_ativos}, peso_max={peso_maximo}, "
+          f"taxa_rf={taxa_livre_risco}, retorno_alvo={retorno_alvo}")
+    print("===============================")
+
     try:
-        # --- 1. Carregamento e Preparação dos Dados ---
-        # Utiliza 'Base Cota Mercado.csv' para o cálculo da volatilidade (risco)
+        # --- 1. Carregamento das Bases ---
         df_vol = pd.read_csv(
             "Base Cota Mercado.csv", parse_dates=["dt_pregao"], index_col="dt_pregao"
         )
-        # Utiliza 'Base Cota Ajustada.csv' para o cálculo dos retornos
         df_ret = pd.read_csv(
             "Base Cota Ajustada.csv", parse_dates=["dt_pregao"], index_col="dt_pregao"
         )
 
-        # Filtra para o período de análise
+        print(f"> Base Mercado: {df_vol.shape[0]} linhas x {df_vol.shape[1]} colunas")
+        print(f"> Base Ajustada: {df_ret.shape[0]} linhas x {df_ret.shape[1]} colunas")
+
+        # --- 2. Filtro de Período ---
         start_date = "2020-01-01"
         end_date = "2024-12-31"
         df_vol = df_vol.loc[start_date:end_date]
         df_ret = df_ret.loc[start_date:end_date]
+        print(f"> Após filtro: {df_vol.shape[0]} datas válidas")
 
-        # Sincroniza as colunas entre os dois dataframes
+        # --- 3. Sincronização de colunas ---
         common_tickers = df_vol.columns.intersection(df_ret.columns)
+        print(f"> Tickers em comum antes da limpeza: {len(common_tickers)}")
+
         df_vol = df_vol[common_tickers]
         df_ret = df_ret[common_tickers]
 
-        # Limpeza de dados: remove ativos com muitos dados faltantes e depois dias com algum dado faltante
-        df_vol.dropna(axis=1, thresh=int(0.90 * len(df_vol)), inplace=True)
-        df_ret.dropna(axis=1, thresh=int(0.90 * len(df_ret)), inplace=True)
+        # --- 4. Limpeza de NaNs ---
+        thresh_vol = int(0.90 * len(df_vol))
+        thresh_ret = int(0.90 * len(df_ret))
+        df_vol.dropna(axis=1, thresh=thresh_vol, inplace=True)
+        df_ret.dropna(axis=1, thresh=thresh_ret, inplace=True)
 
         common_tickers_after_na = df_vol.columns.intersection(df_ret.columns)
+        print(f"> Após dropna por coluna: {len(common_tickers_after_na)} ativos restantes")
+
         df_vol = df_vol[common_tickers_after_na].dropna()
         df_ret = df_ret[common_tickers_after_na].dropna()
 
-        # Sincroniza os índices após a remoção de NaNs
         common_index = df_vol.index.intersection(df_ret.index)
         df_vol = df_vol.loc[common_index]
         df_ret = df_ret.loc[common_index]
 
-        # --- 2. Cálculo dos Inputs para a Otimização (Universo Completo) ---
-        # Verifica a quantidade de ativos disponíveis
+        print(f"> Após dropna por linha: {df_ret.shape[0]} dias válidos, {df_ret.shape[1]} ativos")
+
+        if df_ret.empty or df_vol.empty:
+            raise ValueError("As bases ficaram vazias após limpeza — verifique NaNs ou tickers inconsistentes.")
+
+        # --- 5. Cálculo dos Inputs ---
         mu = expected_returns.mean_historical_return(df_ret)
         S = risk_models.CovarianceShrinkage(df_vol).ledoit_wolf()
+        print("> Inputs calculados com sucesso (retornos e covariância)")
 
-        # --- 3. Pré-Seleção dos Melhores Ativos ---
+        # --- 6. Seleção de ativos ---
         if quantidade_ativos >= len(mu):
-            print(
-                f"Aviso: O número de ativos solicitados ({quantidade_ativos}) é maior ou igual ao "
-                f"número de ativos disponíveis ({len(mu)}). Utilizando todos os ativos."
-            )
+            print("> Utilizando todos os ativos disponíveis.")
             selected_tickers = mu.index.tolist()
         else:
-            # Calcula o Índice de Sharpe individual para cada ativo
             sharpe_individual = (mu - taxa_livre_risco) / np.sqrt(np.diag(S))
+            selected_tickers = sharpe_individual.nlargest(quantidade_ativos).index.tolist()
+            print(f"> Ativos selecionados: {len(selected_tickers)}")
 
-            # Seleciona os N ativos com os maiores Índices de Sharpe
-            selected_tickers = sharpe_individual.nlargest(
-                quantidade_ativos
-            ).index.tolist()
+        mu_sel = mu[selected_tickers]
+        S_sel = S.loc[selected_tickers, selected_tickers]
 
-        # Filtra os inputs de retorno e covariância para conter apenas os ativos selecionados
-        mu_selected = mu[selected_tickers]
-        S_selected = S.loc[selected_tickers, selected_tickers]
+        # --- 7. Otimização ---
+        ef = EfficientFrontier(mu_sel, S_sel, weight_bounds=(0, peso_maximo))
 
-        # --- 4. Otimização da Carteira (com Ativos Pré-Selecionados) ---
-        # A otimização agora ocorre apenas no subconjunto de ativos.
-        ef = EfficientFrontier(mu_selected, S_selected, weight_bounds=(0, peso_maximo))
-
-        if retorno_alvo:
-            try:
+        try:
+            if retorno_alvo:
                 ef.efficient_return(target_return=retorno_alvo)
-            except (OptimizationError, ValueError) as e:
-                print(
-                    f"Não foi possível otimizar para o retorno alvo de {retorno_alvo:.2%}. Erro: {e}. "
-                    "Otimizando para o máximo Índice de Sharpe."
-                )
+                print("> Otimização feita por retorno alvo")
+            else:
                 ef.max_sharpe(risk_free_rate=taxa_livre_risco)
-        else:
+                print("> Otimização feita para máximo Sharpe")
+        except (OptimizationError, ValueError) as e:
+            print(f"> Erro ao usar retorno alvo ({e}). Tentando max_sharpe...")
             ef.max_sharpe(risk_free_rate=taxa_livre_risco)
 
-        # --- 5. Extração dos Resultados ---
-        # Usamos cutoff=0 para garantir que mesmo pesos muito pequenos sejam retornados,
-        # mantendo a quantidade de ativos no dicionário final.
+        # --- 8. Extração de Pesos ---
         pesos = ef.clean_weights(cutoff=1e-5)
+        pesos_final = {ticker: w for ticker, w in pesos.items() if w > 0}
 
-        # Filtra ativos com peso zero para retornar apenas os que compõem a carteira
-        pesos_final = {ticker: weight for ticker, weight in pesos.items() if weight > 0}
+        soma_pesos = sum(pesos_final.values())
+        print(f"> Quantidade de ativos na carteira: {len(pesos_final)}")
+        print(f"> Soma dos pesos: {soma_pesos:.4f}")
+
+        if len(pesos_final) == 0:
+            raise ValueError("Nenhum ativo recebeu peso positivo — otimização inválida.")
 
         return pesos_final
 
     except Exception as e:
-        print(f"Ocorreu um erro inesperado durante a otimização: {e}")
+        print("\n[ERRO na Otimização Markowitz]")
+        print(e)
+        traceback.print_exc()
+        print("Retornando carteira vazia.\n")
         return {}
-
-
-# --- TESTES ---
-if __name__ == "__main__":
-    carteira = Otimizacao_Markowitz(
-        quantidade_ativos=6,
-        peso_maximo=0.20,
-        taxa_livre_risco=0.10,
-        retorno_alvo=None,  # Se None, otimiza para max Sharpe
-    )
-
-    if carteira:
-        print("\n--- Composição Final da Carteira ---")
-        total_weight = 0
-        for ativo, peso in carteira.items():
-            print(f"{ativo}: {peso:.2%}")
-            total_weight += peso
-        print("----------------------------------")
-        print(f"Número de Ativos na Carteira: {len(carteira)}")
-        print(f"Peso Total na Carteira: {total_weight:.2%}")
